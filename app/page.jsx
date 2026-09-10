@@ -1,70 +1,65 @@
 'use client'
 import { useState } from 'react'
-
 export default function Home(){
-  const [phone,setPhone]=useState('0777772069')
+  const [phone,setPhone]=useState('')
   const [amount,setAmount]=useState('1')
-  const [ref,setRef]=useState('')
+  const [operator,setOperator]=useState('airtel')
   const [msg,setMsg]=useState('')
+  const [ref,setRef]=useState('')
   const [checking,setChecking]=useState(false)
 
   async function pay(){
+    if(!phone) { setMsg('Enter phone'); return }
     setChecking(true)
-    setMsg('Sending to Airtel...')
+    setMsg(`Sending to ${operator.toUpperCase()}...`)
     const r = await fetch('/api/collect',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ phone, amount })
+      body: JSON.stringify({phone, amount, operator})
     })
     const j = await r.json()
-    const newRef = j.reference || j.ref
-    setRef(newRef)
-    
-    if(!newRef){
-      setMsg('Error: '+JSON.stringify(j))
-      setChecking(false)
-      return
-    }
+    if(!j.success){ setMsg(`❌ ${j.error}`); setChecking(false); return }
+    setRef(j.reference)
+    setMsg(`✅ Sent via ${j.operator_used.toUpperCase()} - Check ${phone} - Enter PIN! Ref: ${j.reference}`)
 
-    setMsg(`Check phone ${phone} - Enter PIN! Ref: ${newRef} - Waiting...`)
-
-    // REAL POLLING - Keep checking Lenco every 3 sec
-    let tries = 0
-    const interval = setInterval(async()=>{
-      tries++
-      const s = await fetch(`/api/status?ref=${newRef}`).then(x=>x.json())
-      setMsg(`Status: ${s.status} | Tries: ${tries}/40 | Ref: ${newRef}`)
-
-      if(s.status === 'successful'){
-        clearInterval(interval)
-        setChecking(false)
-        // ONLY NOW go to success - REAL deduction!
-        window.location.href = `/success?ref=${newRef}&amount=${amount}&phone=${phone}`
+    let t=0
+    const id=setInterval(async()=>{
+      t++
+      const s = await fetch(`/api/status?ref=${j.reference}`).then(x=>x.json())
+      setMsg(`⏳ ${s.status} | ${j.operator_used.toUpperCase()} | ${t}/40`)
+      if(s.status==='successful'){
+        clearInterval(id); setChecking(false)
+        window.location.href=`/success?ref=${j.reference}&amount=${amount}&operator=${j.operator_used}&phone=${phone}`
       }
-      if(s.status === 'failed'){
-        clearInterval(interval)
-        setChecking(false)
-        setMsg(`FAILED: ${s.reason || 'Incorrect PIN or cancelled'} | Ref: ${newRef}`)
-      }
-      if(tries>40){
-        clearInterval(interval)
-        setChecking(false)
-        setMsg(`Timeout - User did not enter PIN - Ref: ${newRef} is pay-offline, NOT deducted`)
-      }
+      if(s.status==='failed'){ clearInterval(id); setChecking(false); setMsg(`❌ FAILED: ${s.reason}`) }
+      if(t>40){ clearInterval(id); setChecking(false); setMsg(`⌛ Timeout - No PIN entered`) }
     },3000)
   }
 
   return(
-    <div style={{maxWidth:400,margin:'50px auto',fontFamily:'sans-serif',padding:20}}>
-      <h1>Felix REAL Lenco Payment</h1>
-      <p style={{background:'#e6f7ff',padding:10,borderRadius:8}}>REAL CHECK: Only green after Lenco says successful</p >
-      <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="0777772069" style={{width:'100%',padding:12,margin:'10px 0'}}/>
-      <input value={amount} onChange={e=>setAmount(e.target.value)} placeholder="1" style={{width:'100%',padding:12,margin:'10px 0'}}/>
-      <button onClick={pay} disabled={checking} style={{width:'100%',padding:14,background:checking?'gray':'black',color:'white',borderRadius:8}}>
-        {checking?'Waiting for PIN...':'Pay ZMW '+amount}
+    <div style={{maxWidth:420,margin:'40px auto',fontFamily:'sans-serif',padding:20}}>
+      <h2>Felix Payment - Choose Network</h2>
+      <p style={{fontSize:13,color:'#666'}}>Customer must select their mobile money</p >
+      
+      <label style={{fontWeight:'bold'}}>Select Network *</label>
+      <select value={operator} onChange={e=>setOperator(e.target.value)} style={{width:'100%',padding:14,margin:'8px 0 15px 0',border:'2px solid black',fontSize:16,fontWeight:'bold'}}>
+        <option value="airtel">🔴 Airtel Money - 077, 097</option>
+        <option value="mtn">🟡 MTN MoMo - 076, 096</option>
+        <option value="zamtel">🟢 Zamtel Kwacha - 075, 095</option>
+      </select>
+
+      <label style={{fontWeight:'bold'}}>Phone Number</label>
+      <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="e.g. 0777772069" style={{width:'100%',padding:14,margin:'8px 0 15px 0',border:'2px solid black',fontSize:16}}/>
+
+      <label style={{fontWeight:'bold'}}>Amount ZMW</label>
+      <input value={amount} onChange={e=>setAmount(e.target.value)} style={{width:'100%',padding:14,margin:'8px 0 15px 0}}/>
+
+      <button onClick={pay} disabled={checking} style={{width:'100%',padding:16,background:operator==='airtel'?'#ff0000':operator==='mtn'?'#ffcc00':operator==='zamtel'?'#00a651':'black',color:operator==='mtn'?'black':'white',borderRadius:8,fontWeight:'bold',fontSize:18}}>
+        {checking ? 'WAITING FOR PIN...' : `Pay with ${operator.toUpperCase()} - ZMW ${amount}`}
       </button>
-      <div style={{marginTop:20,padding:15,background:'#f5f5f5',borderRadius:8,wordBreak:'break-all'}}>{msg}</div>
-      {ref && <div style={{marginTop:10}}>Ref: {ref}<br/><a href= "_blank">Check /api/status?ref={ref}</a ></div>}
+
+      <div style={{marginTop:15,padding:12,background:'#f5f5f5',borderRadius:8,fontSize:12,wordBreak:'break-all'}}>{msg||'Ready - Customer chooses network'}</div>
+      {ref && <div style={{marginTop:10,fontSize:12}}><a href= "_blank">Verify: {ref}</a ></div>}
     </div>
   )
 }
