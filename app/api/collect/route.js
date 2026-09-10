@@ -1,74 +1,45 @@
-export async function POST(req) {
-  const body = await req.json();
-  console.log("Lenco Webhook REAL payment confirmed:", body);
-
-  // Lenco sends reference and status
-  const { reference, status, amount } = body;
-  if (status !== 'successful' && body.data?.status !== 'successful') {
-    return Response.json({ received: true, skipped: 'not successful' });
-  }
-
-  // Get Shopify token - use your env vars
-  let shopifyToken = process.env.SHOPIFY_ADMIN_TOKEN;
-  const store = process.env.SHOPIFY_STORE_DOMAIN; // e.g. felix-xxxx.myshopify.com
-  const clientId = process.env.SHOPIFY_CLIENT_ID;
-  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
-
-  // If no shpat, try to get via Client ID/Secret (for custom app reinstall flow)
-  if (!shopifyToken && clientId && clientSecret) {
+'use client'
+export const dynamic = 'force-dynamic'
+import { useState } from 'react'
+export default function Home() {
+  const [phone, setPhone] = useState('260777772069')
+  const [amount, setAmount] = useState('10')
+  const [method, setMethod] = useState('airtel')
+  const [status, setStatus] = useState('')
+  const [ref, setRef] = useState('')
+  const pay = async () => {
+    setStatus('Calling Lenco...')
     try {
-      const tokenRes = await fetch(`https://${store}/admin/oauth/access_token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: clientId,
-          client_secret: clientSecret,
-          grant_type: 'client_credentials'
-        })
-      });
-      const tokenData = await tokenRes.json();
-      shopifyToken = tokenData.access_token;
-      console.log("Generated Shopify token:", !!shopifyToken);
-    } catch(e) {
-      console.error("Token gen failed, need manual shpat", e);
+      const res = await fetch('/api/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, phone, method }) })
+      const data = await res.json()
+      console.log('Collect result:', data)
+      if (data.success) {
+        setRef(data.ref)
+        setStatus(`✅ PIN sent to ${phone} - Enter PIN! Ref: ${data.ref}`)
+      } else {
+        setStatus(`❌ Failed: ${data.error || JSON.stringify(data).slice(0,400)}`)
+      }
+    } catch (e) {
+      setStatus('Error: ' + e.message)
     }
   }
-
-  // If still no token, log error - you need to get shpat from Shopify
-  if (!shopifyToken) {
-    console.error("MISSING SHOPIFY_ADMIN_TOKEN - Go to Shopify > Apps > Develop Apps > Felix Lenco > Install > Reveal token and add to Vercel as SHOPIFY_ADMIN_TOKEN");
-    return Response.json({ received: true, error: "No Shopify token" });
+  if (ref) {
+    return (
+      <div style={{ maxWidth: 400, margin: '40px auto', textAlign: 'center', fontFamily: 'sans-serif', padding: 20 }}>
+        <h1 style={{ color: 'orange' }}>CHECK PHONE!</h1>
+        <p>{status}</p >
+        <div style={{ background: 'black', color: 'white', padding: 20, borderRadius: 12, marginTop: 20 }}><h2>{ref}</h2></div>
+      </div>
+    )
   }
-
-  // TODO: Extract order ID from reference
-  // For now we search recent orders and mark the latest unpaid as paid
-  // Better: Make reference = ORDER_ID-FG-xxxxx in your frontend
-  try {
-    // Example: Mark order paid via Shopify API
-    // You need to pass order_id from frontend in reference like FG-{orderId}-{time}
-    const orderIdFromRef = reference?.split('-')[1] || reference?.split('FG')[1];
-    
-    if (orderIdFromRef) {
-      const shopifyRes = await fetch(`https://${store}/admin/api/2024-01/orders/${orderIdFromRef}/transactions.json`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': shopifyToken
-        },
-        body: JSON.stringify({
-          transaction: {
-            kind: "capture",
-            status: "success",
-            amount: amount
-          }
-        })
-      });
-      const result = await shopifyRes.json();
-      console.log("Shopify marked paid:", result);
-    }
-  } catch (e) {
-    console.error("Shopify update failed:", e.message);
-  }
-
-  return Response.json({ received: true });
+  return (
+    <div style={{ maxWidth: 400, margin: '40px auto', fontFamily: 'sans-serif', padding: 20, border: '1px solid #ddd', borderRadius: 12 }}>
+      <h2>Felix Global - REAL Lenco</h2>
+      <input value={phone} onChange={e => setPhone(e.target.value)} style={{ width: '100%', padding: 12, marginBottom: 10 }} />
+      <input value={amount} onChange={e => setAmount(e.target.value)} style={{ width: '100%', padding: 12, marginBottom: 10 }} />
+      <select value={method} onChange={e => setMethod(e.target.value)} style={{ width: '100%', padding: 12, marginBottom: 10 }}><option value="mtn">MTN</option><option value="airtel">Airtel</option></select>
+      <button onClick={pay} style={{ width: '100%', padding: 14, background: 'black', color: 'white', borderRadius: 8 }}>{status || 'Pay ZMW ' + amount}</button>
+      <p style={{ marginTop: 10, fontSize: 11, wordBreak: 'break-all', background: '#f5f5f5', padding: 8 }}>{status}</p >
+    </div>
+  )
 }
