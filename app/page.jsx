@@ -1,57 +1,70 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 export default function Home(){
-  const [phone,setPhone]=useState('260777772069')
+  const [phone,setPhone]=useState('0777772069')
   const [amount,setAmount]=useState('1')
-  const [method,setMethod]=useState('airtel')
   const [ref,setRef]=useState('')
-  const [sec,setSec]=useState(0)
   const [msg,setMsg]=useState('')
+  const [checking,setChecking]=useState(false)
 
-  const pay=async()=>{
-    setMsg('Calling Lenco...')
-    const res=await fetch('/api/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount,phone,method})})
-    const d=await res.json()
-    if(d.success){ setRef(d.ref); setMsg(`PIN sent to ${phone} - Ref ${d.ref}`) } else { setMsg('Failed: '+d.error) }
-  }
+  async function pay(){
+    setChecking(true)
+    setMsg('Sending to Airtel...')
+    const r = await fetch('/api/collect',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ phone, amount })
+    })
+    const j = await r.json()
+    const newRef = j.reference || j.ref
+    setRef(newRef)
+    
+    if(!newRef){
+      setMsg('Error: '+JSON.stringify(j))
+      setChecking(false)
+      return
+    }
 
-  useEffect(()=>{
-    if(!ref) return
-    const id=setInterval(async()=>{
-      setSec(s=>{
-        if(s>=25){ clearInterval(id); window.location.href=`/success?ref=${ref}&amount=${amount}&phone=${phone}`; return s }
-        return s+3
-      })
-      try{
-        const r=await fetch(`/api/status?ref=${ref}`)
-        const j=await r.json()
-        if(j.status==='successful'){ clearInterval(id); window.location.href=`/success?ref=${ref}&amount=${amount}&phone=${phone}` }
-      }catch{}
+    setMsg(`Check phone ${phone} - Enter PIN! Ref: ${newRef} - Waiting...`)
+
+    // REAL POLLING - Keep checking Lenco every 3 sec
+    let tries = 0
+    const interval = setInterval(async()=>{
+      tries++
+      const s = await fetch(`/api/status?ref=${newRef}`).then(x=>x.json())
+      setMsg(`Status: ${s.status} | Tries: ${tries}/40 | Ref: ${newRef}`)
+
+      if(s.status === 'successful'){
+        clearInterval(interval)
+        setChecking(false)
+        // ONLY NOW go to success - REAL deduction!
+        window.location.href = `/success?ref=${newRef}&amount=${amount}&phone=${phone}`
+      }
+      if(s.status === 'failed'){
+        clearInterval(interval)
+        setChecking(false)
+        setMsg(`FAILED: ${s.reason || 'Incorrect PIN or cancelled'} | Ref: ${newRef}`)
+      }
+      if(tries>40){
+        clearInterval(interval)
+        setChecking(false)
+        setMsg(`Timeout - User did not enter PIN - Ref: ${newRef} is pay-offline, NOT deducted`)
+      }
     },3000)
-    return()=>clearInterval(id)
-  },[ref])
-
-  if(ref){
-    return(
-      <div style={{maxWidth:400,margin:'40px auto',textAlign:'center',fontFamily:'sans-serif',padding:20}}>
-        <h1 style={{color:'orange'}}>CHECK YOUR PHONE!</h1>
-        <p>Enter {method} PIN to deduct ZMW {amount}</p >
-        <div style={{background:'black',color:'white',padding:20,borderRadius:12}}><h2>{ref}</h2><p>ZMW {amount} - {sec}s</p ></div>
-        <p>{msg} - Auto success in {30-sec}s</p >
-        <button onClick={()=>window.location.href=`/success?ref=${ref}&amount=${amount}&phone=${phone}`} style={{width:'100%',padding:14,background:'green',color:'white',borderRadius:8,marginTop:15}}>I entered PIN - Show SUCCESS</button>
-      </div>
-    )
   }
 
   return(
-    <div style={{maxWidth:400,margin:'40px auto',padding:20,border:'1px solid #ddd',borderRadius:12,fontFamily:'sans-serif'}}>
-      <h3>Felix Global REAL Lenco</h3>
-      <input value={phone} onChange={e=>setPhone(e.target.value)} style={{width:'100%',padding:12,marginBottom:10}}/>
-      <input value={amount} onChange={e=>setAmount(e.target.value)} style={{width:'100%',padding:12,marginBottom:10}}/>
-      <select value={method} onChange={e=>setMethod(e.target.value)} style={{width:'100%',padding:12,marginBottom:10}}><option value="airtel">Airtel</option><option value="mtn">MTN</option><option value="zamtel">Zamtel</option></select>
-      <button onClick={pay} style={{width:'100%',padding:14,background:'black',color:'white',borderRadius:8}}>Pay ZMW {amount}</button>
-      <p>{msg}</p >
+    <div style={{maxWidth:400,margin:'50px auto',fontFamily:'sans-serif',padding:20}}>
+      <h1>Felix REAL Lenco Payment</h1>
+      <p style={{background:'#e6f7ff',padding:10,borderRadius:8}}>REAL CHECK: Only green after Lenco says successful</p >
+      <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="0777772069" style={{width:'100%',padding:12,margin:'10px 0'}}/>
+      <input value={amount} onChange={e=>setAmount(e.target.value)} placeholder="1" style={{width:'100%',padding:12,margin:'10px 0'}}/>
+      <button onClick={pay} disabled={checking} style={{width:'100%',padding:14,background:checking?'gray':'black',color:'white',borderRadius:8}}>
+        {checking?'Waiting for PIN...':'Pay ZMW '+amount}
+      </button>
+      <div style={{marginTop:20,padding:15,background:'#f5f5f5',borderRadius:8,wordBreak:'break-all'}}>{msg}</div>
+      {ref && <div style={{marginTop:10}}>Ref: {ref}<br/><a href= "_blank">Check /api/status?ref={ref}</a ></div>}
     </div>
   )
 }
