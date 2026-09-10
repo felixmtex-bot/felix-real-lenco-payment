@@ -1,45 +1,52 @@
-'use client'
-export const dynamic = 'force-dynamic'
-import { useState } from 'react'
-export default function Home() {
-  const [phone, setPhone] = useState('260777772069')
-  const [amount, setAmount] = useState('10')
-  const [method, setMethod] = useState('airtel')
-  const [status, setStatus] = useState('')
-  const [ref, setRef] = useState('')
-  const pay = async () => {
-    setStatus('Calling Lenco...')
-    try {
-      const res = await fetch('/api/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, phone, method }) })
-      const data = await res.json()
-      console.log('Collect result:', data)
-      if (data.success) {
-        setRef(data.ref)
-        setStatus(`✅ PIN sent to ${phone} - Enter PIN! Ref: ${data.ref}`)
-      } else {
-        setStatus(`❌ Failed: ${data.error || JSON.stringify(data).slice(0,400)}`)
-      }
-    } catch (e) {
-      setStatus('Error: ' + e.message)
+import { NextResponse } from 'next/server'
+
+export async function POST(req) {
+  try {
+    const body = await req.json().catch(()=>({}))
+    const amount = body.amount || '5'
+    const phone = body.phone || '26077772069'
+    const method = body.method || 'airtel'
+
+    const secret = process.env.LENCO_SECRET_KEY
+    const baseUrl = (process.env.LENCO_BASE_URL || 'https://api.lenco.co/access/v2').replace(/\/$/,'')
+
+    if(!secret){
+      return NextResponse.json({ success:false, error: 'LENCO_SECRET_KEY missing in Vercel - Add it!' })
     }
+
+    let cleanPhone = phone.toString().replace(/\D/g,'')
+    if(cleanPhone.startsWith('0')) cleanPhone = '260' + cleanPhone.substring(1)
+    if(!cleanPhone.startsWith('260')) cleanPhone = '260' + cleanPhone
+
+    const reference = `FG${Date.now().toString().slice(-8)}`
+
+    // CALL LENCO
+    const lencoRes = await fetch(`${baseUrl}/collections`, {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${secret}`,
+        'Content-Type':'application/json'
+      },
+      body: JSON.stringify({
+        amount: parseInt(amount),
+        currency: 'ZMW',
+        accountNumber: cleanPhone,
+        accountName: cleanPhone,
+        bankCode: method==='mtn' ? 'MTN_ZM' : method==='airtel' ? 'AIRTEL_ZM' : 'ZAMTEL_ZM',
+        reference: reference,
+        narration: `Felix ${reference}`
+      })
+    })
+
+    const text = await lencoRes.text()
+    
+    if(!lencoRes.ok){
+      return NextResponse.json({ success:false, error: `Lenco ${lencoRes.status}: ${text.slice(0,400)}`, ref: reference })
+    }
+
+    return NextResponse.json({ success:true, ref: reference, message: `PIN sent to ${cleanPhone}` })
+
+  } catch(e){
+    return NextResponse.json({ success:false, error: `Crash: ${e.message}` })
   }
-  if (ref) {
-    return (
-      <div style={{ maxWidth: 400, margin: '40px auto', textAlign: 'center', fontFamily: 'sans-serif', padding: 20 }}>
-        <h1 style={{ color: 'orange' }}>CHECK PHONE!</h1>
-        <p>{status}</p >
-        <div style={{ background: 'black', color: 'white', padding: 20, borderRadius: 12, marginTop: 20 }}><h2>{ref}</h2></div>
-      </div>
-    )
-  }
-  return (
-    <div style={{ maxWidth: 400, margin: '40px auto', fontFamily: 'sans-serif', padding: 20, border: '1px solid #ddd', borderRadius: 12 }}>
-      <h2>Felix Global - REAL Lenco</h2>
-      <input value={phone} onChange={e => setPhone(e.target.value)} style={{ width: '100%', padding: 12, marginBottom: 10 }} />
-      <input value={amount} onChange={e => setAmount(e.target.value)} style={{ width: '100%', padding: 12, marginBottom: 10 }} />
-      <select value={method} onChange={e => setMethod(e.target.value)} style={{ width: '100%', padding: 12, marginBottom: 10 }}><option value="mtn">MTN</option><option value="airtel">Airtel</option></select>
-      <button onClick={pay} style={{ width: '100%', padding: 14, background: 'black', color: 'white', borderRadius: 8 }}>{status || 'Pay ZMW ' + amount}</button>
-      <p style={{ marginTop: 10, fontSize: 11, wordBreak: 'break-all', background: '#f5f5f5', padding: 8 }}>{status}</p >
-    </div>
-  )
 }
