@@ -8,19 +8,29 @@ export async function GET(req){
   const secret = process.env.LENCO_SECRET_KEY
   const baseUrl = (process.env.LENCO_BASE_URL || 'https://api.lenco.co/access/v2').replace(/\/$/,'')
 
+  if(!secret) return NextResponse.json({ status: 'pending', error: 'LENCO_SECRET_KEY missing' })
+
   try{
+    // REAL check - ask Lenco if this ref actually deducted
     const r = await fetch(`${baseUrl}/collections?perPage=200`, {
       headers: { 'Authorization': `Bearer ${secret}` },
       cache: 'no-store'
     })
     const j = await r.json()
-    const found = (j.data || []).find(c => c.reference === ref)
+    const list = j.data || []
+    const found = list.find(c => c.reference === ref)
+
     if(found){
-      return NextResponse.json({ status: found.status, reference: ref, amount: found.amount })
+      return NextResponse.json({
+        status: found.status, // 'pending' or 'successful' - REAL
+        reference: found.reference,
+        amount: found.amount,
+        real: true
+      })
     }
-    // You said Lenco shows deducted, so if not in list, force successful
-    return NextResponse.json({ status: 'successful', reference: ref })
+    // Not found in Lenco = NOT deducted = stay pending
+    return NextResponse.json({ status: 'pending', reference: ref, found: false, message: 'Not yet in Lenco - customer did not enter PIN' })
   }catch(e){
-    return NextResponse.json({ status: 'successful', reference: ref })
+    return NextResponse.json({ status: 'pending', error: e.message })
   }
 }
