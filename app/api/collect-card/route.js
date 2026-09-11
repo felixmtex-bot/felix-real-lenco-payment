@@ -2,44 +2,37 @@ import { NextResponse } from "next/server";
 
 export async function POST(req) {
   try {
-    const { amount, card } = await req.json();
+    const { amount } = await req.json();
     const secret = process.env.LENCO_SECRET_KEY;
 
-    if (!secret) {
-      return NextResponse.json({ error: "LENCO_SECRET_KEY missing" }, { status: 500 });
-    }
-
-    const res = await fetch("https://api.lenco.co/api/v1/transactions", {
+    // Create Lenco Checkout that supports BOTH Mobile + Visa
+    const res = await fetch("https://api.lenco.co/access/v2/collections", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        amount: Number(amount),
+        amount: String(amount),
         currency: "ZMW",
-        type: "card",
-        card: {
-          number: card.number.replace(/\s/g, ""),
-          exp_month: card.exp.split("/")[0],
-          exp_year: "20" + card.exp.split("/")[1].slice(-2),
-          cvv: card.cvv,
-          name: card.name,
-          email: card.email,
-        },
         reference: `FG-${Date.now()}`,
-        description: "Felix Global Store",
+        email: "felixmtex@gmail.com", // customer email
+        // This tells Lenco to accept cards + mobile money on their hosted page
+        redirectUrl: "https://felix-real-lenco-payment.vercel.app/success",
       }),
     });
 
     const data = await res.json();
-    console.log("Lenco:", data);
+    console.log("Lenco Checkout:", data);
 
     if (!res.ok) {
-      return NextResponse.json({ error: data.message || "Card failed", raw: data }, { status: 400 });
+      return NextResponse.json({ error: data.message, raw: data }, { status: 400 });
     }
 
-    return NextResponse.json(data);
+    // Lenco returns checkout_url or authorization redirect
+    const checkoutUrl = data.data?.meta?.authorization?.redirect || data.data?.checkoutUrl || data.checkout_url;
+
+    return NextResponse.json({ checkout_url: checkoutUrl, raw: data });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
