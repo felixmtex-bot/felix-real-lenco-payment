@@ -2,19 +2,18 @@ export async function POST(req) {
   const body = await req.json();
   const { method, amount, phone, card, email } = body;
   const secret = process.env.LENCO_SECRET_KEY;
-  const PAYMENT_LINK = process.env.LENCO_PAYMENT_LINK || "https://pay.lenco.co/YOUR_LINK_HERE"; // Set in Vercel env if you have static link
+  const PAYMENT_LINK = process.env.LENCO_PAYMENT_LINK; // MUST be set in Vercel!
 
   if (!secret) {
-    return Response.json({ success: false, error: "LENCO_SECRET_KEY not set in Vercel" }, { status: 500 });
+    return Response.json({ success: false, error: "LENCO_SECRET_KEY not set" }, { status: 500 });
   }
 
   try {
-    // UNIFIED ENDPOINT - Lenco Collections (supports mobile + card via hosted checkout)
-    // This avoids PCI encryption issue by using Lenco's hosted page for card
     const reference = "FG" + Date.now().toString().slice(-8);
-    
-    // For Mobile Money - direct collect (no encryption needed)
-    if (method === "mtn" || method === "airtel" || method === "zamtel" || method === "mobile") {
+    const customerEmail = email || card?.email || "felixmtex@gmail.com";
+
+    // MOBILE MONEY - direct
+    if (method === "mtn" || method === "airtel" || method === "zamtel") {
       const lencoRes = await fetch("https://api.lenco.co/access/v2/collections/mobile-money", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
@@ -23,21 +22,20 @@ export async function POST(req) {
           currency: "ZMW",
           reference,
           phone: phone,
-          email: email || "customer@felixglobalstore.com",
-          provider: method === "mtn" ? "mtn" : method === "airtel" ? "airtel" : "zamtel",
+          email: customerEmail,
+          provider: method,
         }),
       });
       const data = await lencoRes.json();
-      if (lencoRes.ok) {
+      console.log("Mobile response:", data);
+      if (lencoRes.ok && !data.error) {
         return Response.json({ success: true, ref: reference, message: `PIN sent to ${phone} - Enter PIN to pay K${amount}`, raw: data });
-      } else {
-        // If mobile endpoint fails, fallback to hosted checkout link which supports both
-        return Response.json({ checkout_url: `${PAYMENT_LINK}?amount=${amount}&reference=${reference}&email=${email || "customer@felixglobalstore.com"}`, ref: reference });
       }
+      // If mobile direct fails, try hosted checkout fallback
     }
 
-    // For Card - use hosted checkout (Lenco handles 3DS, no PCI needed)
-    // If you want direct card charge, you need JWE encryption with jose - we fallback to hosted
+    // CARD + FALLBACK - Use Lenco Payment Link API to generate real checkout URL
+    // Step 1: Try to create collection via API
     const checkoutRes = await fetch("https://api.lenco.co/access/v2/collections", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${secret}` },
@@ -45,24 +43,37 @@ export async function POST(req) {
         amount: String(amount),
         currency: "ZMW",
         reference,
-        email: email || card?.email || "customer@felixglobalstore.com",
-        redirectUrl: `https://felix-real-lenco-payment.vercel.app/success?ref=${reference}`,
+        email: customerEmail,
+        description: `Felix Global Store Order ${reference}`,
+        redirectUrl: `https://felix-real-lenco-payment.vercel.app/success?ref=${reference}&amount=${amount}`,
         bearer: "customer",
-        description: `Felix Global Store - Order ${reference}`,
       }),
     });
 
     const checkoutData = await checkoutRes.json();
-    console.log("Lenco checkout:", JSON.stringify(checkoutData));
+    console.log("Checkout response:", JSON.stringify(checkoutData));
 
-    const url = checkoutData?.data?.checkoutUrl || checkoutData?.data?.link || checkoutData?.checkout_url || checkoutData?.data?.meta?.authorization?.redirect || `${PAYMENT_LINK}?amount=${amount}&reference=${reference}`;
+    // Lenco returns checkoutUrl in many places
+    let url = checkoutData?.data?.checkoutUrl || checkoutData?.data?.link || checkoutData?.data?.authorization?.redirect || checkoutData?.data?.meta?.authorization?.redirect || checkoutData?.checkout_url;
+
+    // Step 2: If API didn't give URL, use YOUR real payment link from env
+    if (!url && PAYMENT_LINK && !PAYMENT_LINK.includes("YOUR_LINK_HERE")) {
+      url = `${PAYMENT_LINK}?amount=${amount}&reference=${reference}&email=${encodeURIComponent(customerEmail)}`;
+    }
 
     if (url) {
       return Response.json({ checkout_url: url, ref: reference, raw: checkoutData });
     }
 
-    return Response.json({ success: false, error: checkoutData?.message || "No checkout URL", raw: checkoutData }, { status: 400 });
+    // If still no URL, return error with instructions
+    return Response.json({ 
+      success: false, 
+      error: "No checkout URL generated. Go to Lenco Dashboard > Payment Links > Create Link, copy link, and add it to Vercel env LENCO_PAYMENT_LINK. Or check Lenco logs.",
+      raw: checkoutData 
+    }, { status: 400 });
+
   } catch (e) {
+    console.error(e);
     return Response.json({ success: false, error: e.message }, { status: 500 });
   }
 }
