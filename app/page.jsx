@@ -8,6 +8,8 @@ export default function Home() {
   const [card, setCard] = useState({ number: "", expiry: "", cvv: "", name: "", email: "" });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [polling, setPolling] = useState(false);
+  const [pollInfo, setPollInfo] = useState({ ref: "", collId: "", operator: "" });
 
   const pay = async () => {
     setLoading(true);
@@ -25,20 +27,72 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      console.log(data);
+      console.log("Collect response:", data);
+
+      // CARD - redirect flow (already real)
       if (data.checkout_url) {
         setStatus("✅ Redirecting to Lenco secure checkout...");
         window.location.href = data.checkout_url;
-      } else if (data.success) {
+        return;
+      }
+
+      // MOBILE MONEY - REAL CONFIRMATION FLOW
+      if (data.success && data.collection_id) {
+        // REAL: Wait for Lenco confirmation
+        setPollInfo({ ref: data.reference, collId: data.collection_id, operator: data.operator });
+        setPolling(true);
+        setStatus(`📱 PIN sent to ${data.phone} (${data.operator.toUpperCase()}). Enter PIN on phone now! Waiting for REAL Lenco confirmation...`);
+
+        let tries = 0;
+        const maxTries = 40; // 2 mins
+        const interval = setInterval(async () => {
+          tries++;
+          try {
+            const sRes = await fetch(`/api/status/${data.collection_id}`);
+            const sData = await sRes.json();
+            console.log("Poll status:", sData);
+
+            if (sData.is_success) {
+              clearInterval(interval);
+              setStatus(`✅ REAL SUCCESS! Lenco confirmed payment! Ref: ${sData.reference || data.reference}`);
+              setPolling(false);
+              setLoading(false);
+              window.location.href = `/success?ref=${sData.reference || data.reference}&amount=${amount}&coll=${data.collection_id}`;
+            } else if (sData.is_failed) {
+              clearInterval(interval);
+              setPolling(false);
+              setLoading(false);
+              setStatus(`❌ Payment FAILED: ${sData.reason || sData.raw?.reasonForFailure || "Cancelled / Wrong PIN / Insufficient funds"}. Ref: ${data.reference}. Lenco says: ${sData.status}`);
+            } else if (tries >= maxTries) {
+              clearInterval(interval);
+              setPolling(false);
+              setLoading(false);
+              setStatus(`⏰ Timeout after 2 mins. No PIN entered. Ref: ${data.reference}. Check Lenco dashboard for final status.`);
+            } else {
+              setStatus(`⏳ Waiting for ${data.operator.toUpperCase()} PIN on ${data.phone}... Status: ${sData.status} (${tries * 3}s) - Ref: ${data.reference}`);
+            }
+          } catch (e) {
+            setStatus(`⏳ Polling Lenco... (${tries * 3}s) Ref: ${data.reference}`);
+          }
+        }, 3000);
+
+        return;
+      }
+
+      // OLD fallback (should not happen now)
+      if (data.success) {
         setStatus(`✅ ${data.message}`);
         window.location.href = `/success?ref=${data.ref}&amount=${amount}`;
       } else {
         setStatus(`❌ ${data.error || JSON.stringify(data.raw || data)}`);
+        setLoading(false);
       }
+
     } catch (e) {
       setStatus("Error: " + e.message);
+      setLoading(false);
+      setPolling(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -58,7 +112,7 @@ export default function Home() {
 
         <div style={{ padding: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Pay with Mobile Money & Card</h1>
-          <p style={{ color: "#64748b", fontSize: 13, margin: "6px 0 18px" }}>MTN • Airtel • Zamtel • <b style={{ color: "black" }}>International Bank Card</b></p>
+          <p style={{ color: "#64748b", fontSize: 13, margin: "6px 0 18px" }}>MTN • Airtel • Zamtel • <b style={{ color: "black" }}>International Bank Card</b></p >
 
           {/* Amount */}
           <div style={{ background: "#f8fafc", border: "1px solid #f1f5f9", borderRadius: 12, padding: 14, marginBottom: 20 }}>
@@ -77,7 +131,7 @@ export default function Home() {
               { id: "zamtel", label: "Zamtel Kwacha", sub: "Zambia only", color: "#00a651", txt: "ZAMTEL" },
               { id: "card", label: "Bank Card - International", sub: "Worldwide • Visa/MC/Amex", color: "#1d4ed8", txt: "VISA INTL" },
             ].map(m => (
-              <div key={m.id} onClick={() => setMethod(m.id)} style={{ border: method === m.id ? "2px solid black" : "1px solid #e2e8f0", borderRadius: 12, padding: 12, cursor: "pointer", background: method === m.id ? "#fff" : "#f8fafc", position: "relative" }}>
+              <div key={m.id} onClick={() => !polling && setMethod(m.id)} style={{ border: method === m.id ? "2px solid black" : "1px solid #e2e8f0", borderRadius: 12, padding: 12, cursor: polling ? "not-allowed" : "pointer", background: method === m.id ? "#fff" : "#f8fafc", position: "relative", opacity: polling ? 0.6 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ background: m.color, color: m.id === "mtn" ? "black" : "white", fontSize: 10, fontWeight: 800, padding: "6px 8px", borderRadius: 8 }}>{m.txt}</div>
                   <div style={{ width: 18, height: 18, borderRadius: "50%", border: method === m.id ? "6px solid black" : "1.5px solid #cbd5e1" }} />
@@ -118,8 +172,10 @@ export default function Home() {
           {method !== "card" ? (
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6 }}>PHONE NUMBER • {method.toUpperCase()} ZAMBIA</div>
-              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="2609XXXXXXXX" style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginBottom: 12 }} />
-              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>You will receive a prompt on your phone to enter PIN. Enter PIN to deduct K{amount}.</div>
+              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="2609XXXXXXXX" disabled={polling} style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginBottom: 12 }} />
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>
+                {polling ? `Waiting for REAL confirmation - Ref: ${pollInfo.ref} - Only success when Lenco confirms!` : `You will receive a prompt on your phone to enter PIN. Enter PIN to deduct K${amount}.`}
+              </div>
             </div>
           ) : (
             <div>
@@ -139,17 +195,17 @@ export default function Home() {
           )}
 
           <div style={{ background: "black", color: "white", borderRadius: 10, padding: "10px 14px", fontSize: 11, marginBottom: 14, display: "flex", gap: 8 }}>
-            <span>🔒</span> Lenco secured - International cards via Lenco gateway. 3D Secure Secured.
+            <span>🔒</span> {polling ? `Waiting for Lenco - Ref: ${pollInfo.ref} - Real confirmation only` : "Lenco secured - International cards via Lenco gateway. 3D Secure Secured."}
           </div>
 
-          <button onClick={pay} disabled={loading} style={{ width: "100%", padding: 16, borderRadius: 12, background: loading ? "#94a3b8" : "black", color: "white", border: "none", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
-            {loading ? "Processing..." : `Pay ZMW ${amount} →`}
+          <button onClick={pay} disabled={loading} style={{ width: "100%", padding: 16, borderRadius: 12, background: loading ? "#94a3b8" : "black", color: "white", border: "none", fontWeight: 700, fontSize: 15, cursor: loading ? "not-allowed" : "pointer", opacity: polling ? 0.7 : 1 }}>
+            {polling ? `⏳ Waiting for Lenco... ${pollInfo.operator.toUpperCase()} - Check Phone` : loading ? "Processing..." : `Pay ZMW ${amount} →`}
           </button>
 
-          {status && <div style={{ marginTop: 12, padding: 12, background: status.includes("✅") ? "#f0fdf4" : "#fef2f2", borderRadius: 10, fontSize: 12, border: status.includes("✅") ? "1px solid #bbf7d0" : "1px solid #fecaca" }}>{status}</div>}
+          {status && <div style={{ marginTop: 12, padding: 12, background: status.includes("✅") || status.includes("📱") || status.includes("⏳") ? "#f0fdf4" : "#fef2f2", borderRadius: 10, fontSize: 12, border: status.includes("✅") || status.includes("📱") ? "1px solid #bbf7d0" : "1px solid #fecaca", wordBreak: "break-word" }}>{status}</div>}
 
           <div style={{ textAlign: "center", fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Secured by Lenco • No extra fees<br />After payment save your FG code to track at felixglobalstore.com/pages/track-orders</div>
-          <div style={{ textAlign: "center", fontSize: 10, color: "#94a3b8", marginTop: 16, lineHeight: 1.5 }}>Lenco Zambia • Bank of Zambia licensed • Felix Global approved • Intl cards via Lenco<br />Felix Global Store • Lusaka, Zambia • WhatsApp +86 15926330124 • Call 0975542034 • International payments accepted via Bank Card</div>
+          <div style={{ textAlign: "center", fontSize: 10, color: "#94a3b8", marginTop: 16, lineHeight: 1.5 }}>Lenco Zambia • Bank of Zambia licensed • Felix Global approved • Intl cards via Lenco<br />Felix Global Store • Lusaka, Zambia • WhatsApp +86 15926330124 • Call 0975542034 • International payments accepted via Bank Card<br /><span style={{ color: "#16a34a", fontWeight: 700 }}>✅ REAL confirmation: Success only when Lenco confirms PAY | ❌ Failed when cancelled/wrong PIN</span></div>
         </div>
       </div>
     </div>
