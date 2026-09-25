@@ -1,19 +1,28 @@
 "use client";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect } from "react";
+
+export const dynamic = 'force-dynamic';
 
 function FailedContent() {
-  const searchParams = useSearchParams();
-  const ref = searchParams.get("ref") || "FG...";
-  const amount = searchParams.get("amount") || "0";
-  const reason = searchParams.get("reason") || "Cancelled / Wrong PIN / Insufficient funds";
-  const returnUrl = searchParams.get("return_url") || "https://felixglobalstore.com/cart";
+  const params = useSearchParams();
+  const ref = params.get("ref") || "FG...";
+  const amount = params.get("amount") || "0";
+  const reason = params.get("reason") || "Cancelled / Wrong PIN / Insufficient funds";
+  const returnUrl = params.get("return_url") || "https://felixglobalstore.com/cart";
+  
   const [countdown, setCountdown] = useState(30);
+
   useEffect(() => {
+    // FAILED - Do NOT clear cart! Keep items for retry
+    console.log("Payment failed - keeping cart items for retry, ref:", ref);
+    
     const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
           clearInterval(timer);
+          // Return to cart WITHOUT clearing - items remain
           window.location.href = returnUrl;
           return 0;
         }
@@ -21,34 +30,48 @@ function FailedContent() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [returnUrl]);
+  }, [returnUrl, ref]);
+  
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "Inter, sans-serif", padding: "20px", textAlign: "center" }}>
-      <div style={{ background: "white", borderRadius: "16px", padding: "40px", maxWidth: "500px", width: "100%", boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
-        <div style={{ width: "80px", height: "80px", background: "#fef2f2", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: "40px" }}>❌</div>
-        <h1 style={{ color: "#dc2626", fontSize: "26px", fontWeight: 800, margin: "0 0 10px" }}>Payment Failed</h1>
-        <p style={{ fontSize: "16px", color: "#64748b", margin: "0 0 20px" }}>ZMW {amount} NOT deducted</p>
-        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "12px", padding: "16px", marginBottom: "20px" }}>
-          <div style={{ fontSize: "14px", fontWeight: 600, color: "#dc2626" }}>Status: {reason}</div>
-          <div style={{ fontSize: "13px", color: "#991b1b", marginTop: "4px" }}>Ref: <strong>{ref}</strong></div>
-        </div>
-        <div style={{ background: "#fff7ed", border: "1px solid #ffedd5", borderRadius: "10px", padding: "12px", marginBottom: "20px" }}>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "#c2410c" }}>⏳ Redirecting to Shopify cart in {countdown} seconds...</div>
-          <div style={{ width: "100%", background: "#ffedd5", borderRadius: "10px", height: "6px", marginTop: "8px", overflow: "hidden" }}>
-            <div style={{ width: `${(countdown/30)*100}%`, background: "#dc2626", height: "100%", transition: "width 1s linear" }}></div>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
-          <a href={`/?amount=${amount}&ref=${ref}`} style={{ background: "black", color: "white", padding: "12px 24px", borderRadius: "8px", textDecoration: "none", fontWeight: 700, fontSize: "14px" }}>Try Again →</a>
-          <a href={returnUrl} style={{ background: "#f1f5f9", color: "#334155", padding: "12px 24px", borderRadius: "8px", textDecoration: "none", fontWeight: 600, fontSize: "14px" }}>Back to Cart ({countdown}s)</a>
-        </div>
+    <div style={{ maxWidth: 500, margin: "40px auto", textAlign: "center", fontFamily: "sans-serif", padding: 20 }}>
+      <div style={{ width: 70, height: 70, background: "#fef2f2", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 15px", fontSize: 36 }}>❌</div>
+      <h1 style={{ color: "#dc2626" }}>Payment Failed</h1>
+      <p>ZMW {amount} NOT deducted - Items still in cart</p>
+      <div style={{ background: "#fef2f2", padding: 16, borderRadius: 12, marginTop: 20, border: "1px solid #fecaca" }}>
+        <b style={{ color: "#dc2626" }}>Status: {reason}</b><br />
+        Ref: <b>{ref}</b><br />
+        <span style={{ fontSize: 12, color: "#991b1b", marginTop: 8, display: "block" }}>
+          ❌ Cancelled / Wrong PIN / Insufficient funds<br/>
+          ✅ Your bucket items are SAFE - still in cart<br/>
+          💡 Try again with correct PIN
+        </span>
       </div>
+
+      <div style={{ background: "#fff7ed", border: "1px solid #ffedd5", borderRadius: 10, padding: 12, marginTop: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#c2410c" }}>⏳ Items kept in cart! Returning to cart in {countdown}s...</div>
+        <div style={{ width: "100%", background: "#ffedd5", borderRadius: 10, height: 6, marginTop: 8, overflow: "hidden" }}>
+          <div style={{ width: `${(countdown/30)*100}%`, background: "#dc2626", height: "100%", transition: "width 1s linear" }}></div>
+        </div>
+        <div style={{ fontSize: 11, color: "#57534e", marginTop: 6 }}>Your bucket NOT cleared - you can retry payment</div>
+      </div>
+
+      <div style={{ marginTop: 20, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        <a href={`/?amount=${amount}&ref=${ref}`} style={{ background: "black", color: "white", padding: "12px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 700, fontSize: 14 }}>
+          Try Again ZMW {amount} →
+        </a>
+        <a href={returnUrl} style={{ background: "#f1f5f9", color: "#334155", padding: "12px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+          Back to Cart ({countdown}s) - Items Kept
+        </a>
+      </div>
+
+      <p style={{ fontSize: 12, color: "#666", marginTop: 20 }}>Lenco Zambia • No money deducted • Cart items preserved for retry<br/>WhatsApp +86 15926330124 if need help</p>
     </div>
   );
 }
-export default function FailedPage() {
+
+export default function Failed() {
   return (
-    <Suspense fallback={<div style={{ padding: "40px", textAlign: "center" }}>Loading...</div>}>
+    <Suspense fallback={<div style={{ padding: 40, textAlign: "center" }}>Loading...</div>}>
       <FailedContent />
     </Suspense>
   );
