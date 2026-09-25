@@ -168,7 +168,7 @@ function CheckoutPage() {
               />
               {isLocked && <span style={{ fontSize: 18, marginLeft: 8 }}>🔒</span>}
             </div>
-            {isLocked && <div style={{ fontSize: 10, color: "#16a34a", fontWeight: 700, marginTop: 6 }}>✓ LOCKED - ZMW {amount} from Shopify bucket </div>}
+            {isLocked && <div style={{ fontSize: 10, color: "#16a34a", fontWeight: 700, marginTop: 6 }}>✓ LOCKED - ZMW {amount} from Shopify bucket</div>}
             {isEmptyBucket && <div style={{ fontSize: 11, color: "#dc2626", marginTop: 6, fontWeight: 600 }}>🛒 No items in bucket - Button shows ZMW 0 - Add items at felixglobalstore.com</div>}
           </div>
 
@@ -218,7 +218,7 @@ function CheckoutPage() {
           )}
 
           <div style={{ background: isEmptyBucket ? "#fef2f2" : "black", color: isEmptyBucket ? "#dc2626" : "white", borderRadius: 10, padding: "10px 14px", fontSize: 11, marginBottom: 14, display: "flex", gap: 8 }}>
-            <span>🔒</span> {isEmptyBucket ? "🛒 Empty bucket - No items chosen - Button shows ZMW 0" : polling ? `Waiting for Lenco - Ref: ${pollInfo.ref} - Real confirmation only`}
+            <span>🔒</span> {isEmptyBucket ? "🛒 Empty bucket - No items chosen - Button shows ZMW 0" : polling ? `Waiting for Lenco - Ref: ${pollInfo.ref} - Real confirmation only` : `Lenco secured - ZMW ${amount} from Shopify bucket - LOCKED cannot edit - International cards via Lenco`}
           </div>
 
           <button onClick={pay} disabled={loading || isEmptyBucket} style={{ width: "100%", padding: 16, borderRadius: 12, background: isEmptyBucket ? "#e2e8f0" : loading ? "#94a3b8" : "black", color: isEmptyBucket ? "#94a3b8" : "white", border: "none", fontWeight: 700, fontSize: 15, cursor: isEmptyBucket ? "not-allowed" : loading ? "not-allowed" : "pointer", opacity: polling ? 0.7 : 1 }}>
