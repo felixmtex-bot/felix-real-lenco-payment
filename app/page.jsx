@@ -14,7 +14,7 @@ function CheckoutPage() {
   const [pollInfo, setPollInfo] = useState({ ref: "", collId: "", operator: "" });
   const [hasItems, setHasItems] = useState(false);
 
-  // AUTO FILL from Shopify bucket - 0 if empty
+  // AUTO FILL + LOCK from Shopify bucket - 0 if empty
   useEffect(() => {
     const urlAmount = searchParams.get("amount") || searchParams.get("total") || searchParams.get("price") || searchParams.get("total_price") || searchParams.get("checkout_total") || searchParams.get("cart_total");
     const urlEmail = searchParams.get("email");
@@ -30,7 +30,6 @@ function CheckoutPage() {
         setHasItems(false);
       }
     } else {
-      // Check localStorage for Shopify cart total only (phone NOT auto-filled)
       try {
         const shopifyTotal = localStorage.getItem("shopify_checkout_total") || localStorage.getItem("cart_total");
         if (shopifyTotal && parseFloat(shopifyTotal) > 0) {
@@ -51,6 +50,7 @@ function CheckoutPage() {
   }, [searchParams]);
 
   const isEmptyBucket = !hasItems && (amount === "0" || amount === "" || parseFloat(amount) === 0);
+  const isLocked = hasItems; // LOCKED when from Shopify bucket
 
   const pay = async () => {
     if (isEmptyBucket) {
@@ -104,7 +104,6 @@ function CheckoutPage() {
               clearInterval(interval);
               setPolling(false);
               setLoading(false);
-              // FIXED LINE 65: Redirect to /failed page which does 30 sec → Shopify cart
               window.location.href = `/failed?ref=${data.reference}&amount=${amount}&reason=${encodeURIComponent(sData.reason || sData.raw?.reasonForFailure || "Cancelled / Wrong PIN")}`;
             } else if (tries >= maxTries) {
               clearInterval(interval);
@@ -151,17 +150,25 @@ function CheckoutPage() {
 
         <div style={{ padding: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Pay with Mobile Money & Card</h1>
-          <p style={{ color: "#64748b", fontSize: 13, margin: "6px 0 18px" }}>MTN • Airtel • Zamtel • <b style={{ color: "black" }}>International Bank Card</b></p>
+          <p style={{ color: "#64748b", fontSize: 13, margin: "6px 0 18px" }}>MTN • Airtel • Zamtel • <b style={{ color: "black" }}>International Bank Card</b></p >
 
           <div style={{ background: isEmptyBucket ? "#fef2f2" : "#f8fafc", border: isEmptyBucket ? "1px solid #fecaca" : "1px solid #f1f5f9", borderRadius: 12, padding: 14, marginBottom: 20 }}>
             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1, color: isEmptyBucket ? "#dc2626" : "#94a3b8", marginBottom: 8 }}>
-              {isEmptyBucket ? "🛒 BUCKET IS EMPTY - NO ITEMS CHOSEN" : hasItems ? "ORDER TOTAL (FROM SHOPIFY BUCKET)" : "AMOUNT TO PAY (ZMW)"} 
-              <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: isEmptyBucket ? "#dc2626" : "#16a34a" }}> {isEmptyBucket ? "Add items at felixglobalstore.com" : hasItems ? "✓ Auto-filled from bucket" : "No extra fees • Secured by Lenco"}</span>
+              {isEmptyBucket ? "🛒 BUCKET IS EMPTY - NO ITEMS CHOSEN" : hasItems ? "ORDER TOTAL (FROM SHOPIFY BUCKET) ✓ LOCKED" : "AMOUNT TO PAY (ZMW)"} 
+              <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: isEmptyBucket ? "#dc2626" : "#16a34a" }}> {isEmptyBucket ? "Add items at felixglobalstore.com" : hasItems ? "🔒 Auto-filled & Locked from bucket" : "No extra fees • Secured by Lenco"}</span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", background: "white", borderRadius: 10, padding: "10px 14px", border: isEmptyBucket ? "2px solid #fecaca" : hasItems ? "2px solid #16a34a" : "1px solid #e2e8f0" }}>
-              <span style={{ color: "#94a3b8", fontWeight: 700, fontSize: 13, marginRight: 8 }}>ZMW</span>
-              <input value={amount} onChange={e => { setAmount(e.target.value); setHasItems(parseFloat(e.target.value) > 0); }} style={{ border: "none", outline: "none", fontSize: 20, fontWeight: 800, width: "100%", color: isEmptyBucket ? "#dc2626" : "black" }} />
+            <div style={{ display: "flex", alignItems: "center", background: hasItems ? "#f0fdf4" : "white", borderRadius: 10, padding: "10px 14px", border: isEmptyBucket ? "2px solid #fecaca" : hasItems ? "2px solid #16a34a" : "1px solid #e2e8f0", position: "relative" }}>
+              <span style={{ color: hasItems ? "#16a34a" : "#94a3b8", fontWeight: 700, fontSize: 13, marginRight: 8 }}>ZMW</span>
+              <input 
+                value={amount} 
+                readOnly={isLocked}
+                disabled={isLocked}
+                onChange={e => { if(!isLocked){ setAmount(e.target.value); setHasItems(parseFloat(e.target.value) > 0); } }} 
+                style={{ border: "none", outline: "none", fontSize: 20, fontWeight: 800, width: "100%", color: isEmptyBucket ? "#dc2626" : hasItems ? "#15803d" : "black", background: "transparent", cursor: isLocked ? "not-allowed" : "text" }} 
+              />
+              {isLocked && <span style={{ fontSize: 18, marginLeft: 8 }}>🔒</span>}
             </div>
+            {isLocked && <div style={{ fontSize: 10, color: "#16a34a", fontWeight: 700, marginTop: 6 }}>✓ LOCKED - ZMW {amount} from Shopify bucket - Customer CANNOT change - Prevents fraud</div>}
             {isEmptyBucket && <div style={{ fontSize: 11, color: "#dc2626", marginTop: 6, fontWeight: 600 }}>🛒 No items in bucket - Button shows ZMW 0 - Add items at felixglobalstore.com</div>}
           </div>
 
@@ -187,7 +194,7 @@ function CheckoutPage() {
 
           {method !== "card" ? (
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6 }}>PHONE NUMBER • {method.toUpperCase()} ZAMBIA</div>
+              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 6 }}>PHONE NUMBER • {method.toUpperCase()} ZAMBIA • MANUAL (NOT AUTO)</div>
               <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Enter YOUR number e.g. 0777772069 - Manual (NOT auto-filled)" disabled={polling || isEmptyBucket} style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, marginBottom: 12 }} />
               <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>
                 {isEmptyBucket ? "Add items to bucket first" : polling ? `Waiting for REAL confirmation - Ref: ${pollInfo.ref} - Only success when Lenco confirms!` : `You will receive a prompt on your phone to enter PIN. Enter PIN to deduct K${amount}. Phone NOT auto-filled - choose MTN/Airtel/Zamtel/Visa yourself`}
@@ -211,16 +218,16 @@ function CheckoutPage() {
           )}
 
           <div style={{ background: isEmptyBucket ? "#fef2f2" : "black", color: isEmptyBucket ? "#dc2626" : "white", borderRadius: 10, padding: "10px 14px", fontSize: 11, marginBottom: 14, display: "flex", gap: 8 }}>
-            <span>🔒</span> {isEmptyBucket ? "🛒 Empty bucket - No items chosen - Button shows ZMW 0" : polling ? `Waiting for Lenco - Ref: ${pollInfo.ref} - Real confirmation only` : `Lenco secured - ZMW ${amount} from Shopify bucket - International cards via Lenco`}
+            <span>🔒</span> {isEmptyBucket ? "🛒 Empty bucket - No items chosen - Button shows ZMW 0" : polling ? `Waiting for Lenco - Ref: ${pollInfo.ref} - Real confirmation only` : `Lenco secured - ZMW ${amount} from Shopify bucket - LOCKED cannot edit - International cards via Lenco`}
           </div>
 
           <button onClick={pay} disabled={loading || isEmptyBucket} style={{ width: "100%", padding: 16, borderRadius: 12, background: isEmptyBucket ? "#e2e8f0" : loading ? "#94a3b8" : "black", color: isEmptyBucket ? "#94a3b8" : "white", border: "none", fontWeight: 700, fontSize: 15, cursor: isEmptyBucket ? "not-allowed" : loading ? "not-allowed" : "pointer", opacity: polling ? 0.7 : 1 }}>
-            {isEmptyBucket ? "Pay ZMW 0 → Empty bucket" : polling ? `⏳ Waiting for Lenco... ${pollInfo.operator.toUpperCase()} - Check Phone` : loading ? "Processing..." : `Pay ZMW ${amount} →`}
+            {isEmptyBucket ? "Pay ZMW 0 → Empty bucket" : polling ? `⏳ Waiting for Lenco... ${pollInfo.operator.toUpperCase()} - Check Phone` : loading ? "Processing..." : `Pay ZMW ${amount} → 🔒 Locked`}
           </button>
 
           {status && <div style={{ marginTop: 12, padding: 12, background: status.includes("✅") || status.includes("📱") || status.includes("⏳") ? "#f0fdf4" : "#fef2f2", borderRadius: 10, fontSize: 12, border: status.includes("✅") || status.includes("📱") ? "1px solid #bbf7d0" : "1px solid #fecaca", wordBreak: "break-word" }}>{status}</div>}
 
-          <div style={{ textAlign: "center", fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Secured by Lenco • No extra fees<br />{isEmptyBucket ? "Add items at felixglobalstore.com" : "After payment save your FG code to track at felixglobalstore.com/pages/track-orders"}</div>
+          <div style={{ textAlign: "center", fontSize: 11, color: "#94a3b8", marginTop: 10 }}>Secured by Lenco • Amount locked from Shopify bucket • No extra fees<br />{isEmptyBucket ? "Add items at felixglobalstore.com" : "After payment save your FG code to track at felixglobalstore.com/pages/track-orders"}</div>
         </div>
       </div>
     </div>
